@@ -133,13 +133,6 @@ resource "helm_release" "envoy_gateway" {
 }
 ```
 
-### Получение стандартных значений чарта
-```bash
-helm show values oci://docker.io/envoyproxy/gateway-helm --version v1.6.2 > default-values.yaml
-yq -i 'del(.. | select( length == 0))' default-values.yaml
-sed -i '/{}/d' default-values.yaml
-```
-
 
 ## 5. Создание TLS-сертификата для Redis
 
@@ -164,7 +157,9 @@ spec:
   dnsNames:
   - "*.apatsev.org.ru"
 EOF
+```
 
+```
 kubectl apply -f wildcard-certificate.yaml
 ```
 
@@ -179,7 +174,9 @@ metadata:
 spec:
   controllerName: gateway.envoyproxy.io/gatewayclass-controller
 EOF
+```
 
+```
 kubectl apply -f gatewayclass.yaml
 ```
 
@@ -207,7 +204,9 @@ spec:
         namespaces:
           from: All
 EOF
+```
 
+```
 kubectl apply -f gateway.yaml
 ```
 
@@ -233,7 +232,9 @@ spec:
         - name: redis-standalone1
           port: 6379
 EOF
+```
 
+```
 kubectl apply -f tlsroute.yaml
 ```
 
