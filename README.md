@@ -24,6 +24,11 @@ yc managed-kubernetes cluster get-credentials --id id-кластера-k8s --ext
 terraform output -raw dns_manager_service_account_key | python3 -m json.tool | grep -v description | grep -v encrypted_private_key | grep -v format | grep -v key_fingerprint | grep -v pgp_key > key.json
 ```
 
+# Debug: проверяем созданный файл
+```
+cat key.json | jq -r '.service_account_id'
+```
+
 ```
 helm upgrade --install \
   cert-manager-webhook-yandex \
@@ -37,11 +42,19 @@ helm upgrade --install \
   --set config.server='https://acme-v02.api.letsencrypt.org/directory'
 ```
 
+# Debug: проверяем установку cert-manager
+```bash
+helm list -n cert-manager
+kubectl get pods -n cert-manager
+kubectl get crds | grep cert-manager
+```
+
 ### Проверка установки ClusterIssuer
 Проверяем, что ClusterIssuer `yc-clusterissuer` успешно создан:
 
 ```bash
-kubectl get clusterissuer yc-clusterissuer
+kubectl describe clusterissuer yc-clusterissuer
+kubectl get clusterissuer yc-clusterissuer -o yaml | grep -A 5 "status:"
 ```
 
 **Примечание:** 
@@ -55,17 +68,26 @@ kubectl get clusterissuer yc-clusterissuer
 ### Добавление репозитория Helm
 ```bash
 helm repo add ot-helm https://ot-container-kit.github.io/helm-charts/
+# Debug: проверяем добавленный репозиторий
+helm repo update ot-helm
 ```
 
 ### Установка Redis-оператора
 ```bash
 helm upgrade --install redis-operator ot-helm/redis-operator \
   --create-namespace --namespace ot-operators --wait --version 0.22.2
+# Debug: проверяем установку оператора
+helm list -n ot-operators
+kubectl get deployment -n ot-operators
+kubectl get crds | grep redis
 ```
 
 ### Проверка установки
 ```bash
 kubectl get pods -n ot-operators | grep redis
+# Debug: детальная информация о подах
+kubectl get pods -n ot-operators -l name=redis-operator
+kubectl logs -n ot-operators -l name=redis-operator --tail=20
 ```
 
 ## 3. Развёртывание standalone-Redis через YAML-манифест
@@ -104,7 +126,11 @@ EOF
 Redis-оператор автоматически создаёт Service-ресурс `redis-standalone1`, который открывает порт 6379. TLSRoute в дальнейшем будет ссылаться на этот сервис, чтобы пробросить трафик от Envoy к экземпляру.
 ```bash
 kubectl apply -f redis-standalone.yaml
+# Debug: проверяем созданные ресурсы
+kubectl get redis -n redis-standalone
 kubectl get pods -n redis-standalone
+kubectl get svc -n redis-standalone
+kubectl describe redis redis-standalone1 -n redis-standalone | tail -20
 ```
 
 ## 4. Установка envoy-gateway
@@ -159,11 +185,48 @@ spec:
 EOF
 ```
 
-```
+```bash
 kubectl apply -f wildcard-certificate.yaml
+# Debug: проверяем создание сертификата
+kubectl get certificate -n redis-standalone
+kubectl describe certificate wildcard-certificate -n redis-standalone
+kubectl get certificaterequest -n redis-standalone
+kubectl get secret wildcard-tls-cert -n redis-standalone
+# Проверяем статус сертификата (может занять время)
+kubectl get certificate wildcard-certificate -n redis-standalone -o jsonpath='{.status.conditions[*].type}' && echo
 ```
 
 ## 6. Настройка TLSRoute и Gateway
+### ReferenceGrant
+
+**Важно:** Gateway API требует создания ReferenceGrant для кросс‑неймспейсных ссылок на ресурсы. Поскольку Gateway в пространстве имён `envoy-gateway` ссылается на Secret `wildcard-tls-cert` в пространстве имён `redis-standalone`, необходимо создать ReferenceGrant в пространстве имён `redis-standalone`, который разрешает эту ссылку.
+
+```bash
+cat <<EOF > referencegrant.yaml
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-gateway-to-cert
+  namespace: redis-standalone
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    namespace: envoy-gateway
+  to:
+  - group: ""
+    kind: Secret
+    name: wildcard-tls-cert
+EOF
+```
+
+```bash
+kubectl apply -f referencegrant.yaml
+# Debug: проверяем ReferenceGrant
+kubectl get referencegrant -n redis-standalone
+kubectl describe referencegrant allow-gateway-to-cert -n redis-standalone
+```
+
 ### GatewayClass
 ```bash
 cat <<EOF > gatewayclass.yaml
@@ -176,8 +239,11 @@ spec:
 EOF
 ```
 
-```
+```bash
 kubectl apply -f gatewayclass.yaml
+# Debug: проверяем GatewayClass
+kubectl get gatewayclass
+kubectl describe gatewayclass envoy
 ```
 
 ### Gateway
@@ -206,8 +272,14 @@ spec:
 EOF
 ```
 
-```
+```bash
 kubectl apply -f gateway.yaml
+# Debug: проверяем Gateway и его статус
+kubectl get gateway -n envoy-gateway
+kubectl describe gateway redis-gateway -n envoy-gateway
+kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.addresses[*].value}' && echo
+# Проверяем адрес LoadBalancer
+kubectl get svc -n envoy-gateway | grep envoy
 ```
 
 ### TLSRoute
@@ -234,8 +306,14 @@ spec:
 EOF
 ```
 
-```
+```bash
 kubectl apply -f tlsroute.yaml
+# Debug: проверяем TLSRoute и его статус
+kubectl get tlsroute -n redis-standalone
+kubectl describe tlsroute redis-cluster-1-route -n redis-standalone
+kubectl get tlsroute redis-cluster-1-route -n redis-standalone -o jsonpath='{.status.parents[*].conditions[*].type}' && echo
+# Проверяем связанные ресурсы
+kubectl get gateway redis-gateway -n envoy-gateway -o yaml | grep -A 10 "listeners:"
 ```
 
 ## 7. Проверка доступности
@@ -244,4 +322,8 @@ kubectl apply -f tlsroute.yaml
 ```bash
 kubectl run redis-client --rm -it --restart=Never --image=redis:alpine -- /bin/sh -c "
 redis-cli --tls --insecure -h redis1.apatsev.org.ru -p 443 PING"
+# Debug: проверяем подключение и логи
+kubectl logs -n envoy-gateway -l app.kubernetes.io/instance=envoy-gateway --tail=50 | grep -i redis || echo "Проверьте логи envoy-gateway"
+# Альтернативная проверка через telnet (без TLS)
+kubectl run debug-client --rm -i --restart=Never --image=busybox -- nc -zv redis-standalone1.redis-standalone.svc.cluster.local 6379
 ```
