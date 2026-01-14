@@ -342,13 +342,51 @@ kubectl get gateway redis-gateway -n envoy-gateway -o yaml | grep -A 10 "listene
 ```
 
 ## 7. Проверка доступности
-Для проверки TLS-соединения запускаем временный под и обращаемся к слушателю на порту 443 через TLS. Поскольку Envoy выполняет termination, клиент должен установить TLS-сессию и, при необходимости, доверить сертификату (для теста можно использовать `--insecure`).
+
+### Вариант 1: Быстрая проверка через внешний адрес (рекомендуется)
+Для проверки TLS-соединения запускаем временный под без интерактивного режима. Поскольку Envoy выполняет termination, клиент должен установить TLS-сессию и, при необходимости, доверить сертификату (для теста можно использовать `--insecure`).
 
 ```bash
-kubectl run redis-client --rm -it --restart=Never --image=redis:alpine -- /bin/sh -c "
-redis-cli --tls --insecure -h redis1.apatsev.org.ru -p 443 PING"
-# Debug: проверяем подключение и логи
+# Быстрая проверка без интерактивного режима (--rm удалит под автоматически)
+kubectl run redis-client --rm -i --restart=Never --image=redis:alpine --timeout=30s -- \
+  redis-cli --tls --insecure -h redis1.apatsev.org.ru -p 443 PING
+```
+
+### Вариант 2: Проверка через существующий под Redis (самый быстрый)
+Если у вас уже есть под Redis в кластере, можно использовать его для проверки:
+
+```bash
+# Получаем имя пода Redis
+REDIS_POD=$(kubectl get pods -n redis-standalone -l app=redis-standalone1 -o jsonpath='{.items[0].metadata.name}')
+# Проверяем подключение через внешний адрес
+kubectl exec -n redis-standalone $REDIS_POD -- \
+  redis-cli --tls --insecure -h redis1.apatsev.org.ru -p 443 PING
+```
+
+### Вариант 3: Проверка напрямую через сервис (без TLS)
+Для проверки доступности Redis внутри кластера (минуя Gateway, без TLS):
+
+```bash
+# Проверка через внутренний сервис
+kubectl run debug-client --rm -i --restart=Never --image=busybox --timeout=10s -- \
+  nc -zv redis-standalone1.redis-standalone.svc.cluster.local 6379
+```
+
+### Вариант 4: Проверка через openssl (для диагностики TLS)
+Для проверки TLS-соединения и сертификата:
+
+```bash
+# Проверка TLS-соединения
+kubectl run tls-check --rm -i --restart=Never --image=alpine/openssl --timeout=15s -- \
+  sh -c "echo | openssl s_client -connect redis1.apatsev.org.ru:443 -servername redis1.apatsev.org.ru 2>&1 | grep -E '(Verify return code|subject=|issuer=)'"
+```
+
+### Debug: проверка подключения и логов
+```bash
+# Проверяем логи envoy-gateway
 kubectl logs -n envoy-gateway -l app.kubernetes.io/instance=envoy-gateway --tail=50 | grep -i redis || echo "Проверьте логи envoy-gateway"
-# Альтернативная проверка через telnet (без TLS)
-kubectl run debug-client --rm -i --restart=Never --image=busybox -- nc -zv redis-standalone1.redis-standalone.svc.cluster.local 6379
+# Проверяем статус Gateway
+kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.addresses[*].value}' && echo
+# Проверяем статус TLSRoute
+kubectl get tlsroute redis-cluster-1-route -n redis-standalone -o jsonpath='{.status.parents[*].conditions[*].type}' && echo
 ```
