@@ -3,6 +3,8 @@
 ## Цель статьи
 Показать, как осуществить маршрутизацию трафика к кластеру Redis, расположенному в другом Kubernetes-кластере, через один LoadBalancer. Решение предполагает терминацию TLS-соединений в `envoy-gateway` и проксирование незашифрованного TCP-трафика к Redis без TLS.
 
+**Особенность реализации:** Используется функция **Merge Gateways** (`mergeGateways: true`), которая объединяет все Gateway ресурсы в один Envoy Proxy fleet. Это обеспечивает экономию ресурсов и упрощённое управление при использовании одного LoadBalancer для всех Gateway.
+
 ### Какие задачи решаем
 - Managed-сервисы требуют существенных затрат, тогда как stateful-сервисы позволяют использовать собственные кластеры с контролем затрат.
 - Размещение stateful-сервисов в том же кластере ограничивает возможности обновления операторов и самих сервисов, поэтому стоит вынести их в отдельный кластер.
@@ -19,16 +21,9 @@ yc managed-kubernetes cluster get-credentials --id id-кластера-k8s --ext
 Для работы с wildcard-сертификатами через DNS-01 challenge установите webhook для Yandex Cloud DNS (webhook также устанавливает cert-manager):
 
 
-# Получаем ключ сервисного аккаунта из Terraform output
+# Получаем ключ сервисного аккаунта из Terraform output и удаляем неподдерживаемые поля
 ```bash
-terraform output -raw dns_manager_service_account_key | python3 -m json.tool | grep -v description | grep -v encrypted_private_key | grep -v format | grep -v key_fingerprint | grep -v pgp_key > key.json
-```
-
-**Важно:** Удалите из `key.json` поля `output_to_lockbox` и `output_to_lockbox_version_id`, которые не поддерживаются cert-manager-webhook-yandex и вызывают ошибку `proto: unknown field "output_to_lockbox"`:
-
-```bash
-# Удаляем неподдерживаемые поля из key.json
-jq 'del(.output_to_lockbox, .output_to_lockbox_version_id)' key.json > key.json.tmp && mv key.json.tmp key.json
+terraform output -raw dns_manager_service_account_key | python3 -m json.tool | jq 'del(.description, .encrypted_private_key, .format, .key_fingerprint, .pgp_key, .output_to_lockbox, .output_to_lockbox_version_id)' > key.json
 ```
 
 # Debug: проверяем созданный файл
@@ -243,7 +238,37 @@ kubectl get referencegrant -n redis-standalone
 kubectl describe referencegrant allow-gateway-to-cert -n redis-standalone
 ```
 
+### EnvoyProxy (Merge Gateways)
+
+**Рекомендуется:** Использование `mergeGateways: true` позволяет объединить все Gateway ресурсы в один Envoy Proxy fleet, что даёт следующие преимущества:
+- Один LoadBalancer на все Gateway ресурсы
+- Экономия ресурсов
+- Упрощённое управление
+
+Все listeners из разных Gateway будут объединены в один Envoy Proxy. Должны быть уникальны комбинации: (port, protocol, hostname).
+
+```bash
+cat <<EOF > envoyproxy.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: envoy-gateway-config
+  namespace: envoy-gateway-system
+spec:
+  mergeGateways: true
+EOF
+```
+
+```bash
+kubectl apply -f envoyproxy.yaml
+# Debug: проверяем EnvoyProxy
+kubectl get envoyproxy -n envoy-gateway-system
+kubectl describe envoyproxy envoy-gateway-config -n envoy-gateway-system
+```
+
 ### GatewayClass
+GatewayClass ссылается на EnvoyProxy для активации Merge Gateways:
+
 ```bash
 cat <<EOF > gatewayclass.yaml
 apiVersion: gateway.networking.k8s.io/v1
@@ -252,6 +277,11 @@ metadata:
   name: envoy
 spec:
   controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: envoy-gateway-config
+    namespace: envoy-gateway-system
 EOF
 ```
 
