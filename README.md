@@ -23,7 +23,7 @@ yc managed-kubernetes cluster get-credentials --id id-кластера-k8s --ext
 # Получаем ключ сервисного аккаунта из Terraform output
 terraform output -raw dns_manager_service_account_key | python3 -m json.tool | grep -v description | grep -v encrypted_private_key | grep -v format | grep -v key_fingerprint | grep -v pgp_key > key.json
 
-helm install \
+helm upgrade --install \
   cert-manager-webhook-yandex \
   oci://cr.yandex/yc-marketplace/yandex-cloud/cert-manager-webhook-yandex/cert-manager-webhook-yandex \
   --version 1.0.9 \
