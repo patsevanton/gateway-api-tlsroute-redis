@@ -1,7 +1,7 @@
-# Маршрутизация трафика к нескольким Redis в другом k8s через один LB используя TLSRoute
+# Маршрутизация трафика к Redis в другом k8s через один LB используя TLSRoute
 
 ## Цель статьи
-Показать, как осуществить маршрутизацию трафика к нескольким кластерам Redis, расположенным в другом Kubernetes-кластере, через один LoadBalancer. Решение предполагает терминацию TLS-соединений в `envoy-gateway` и проксирование незашифрованного TCP-трафика к Redis без TLS.
+Показать, как осуществить маршрутизацию трафика к кластеру Redis, расположенному в другом Kubernetes-кластере, через один LoadBalancer. Решение предполагает терминацию TLS-соединений в `envoy-gateway` и проксирование незашифрованного TCP-трафика к Redis без TLS.
 
 ### Какие задачи решаем
 - Managed-сервисы требуют существенных затрат, тогда как stateful-сервисы позволяют использовать собственные кластеры с контролем затрат.
@@ -32,7 +32,7 @@ kubectl get pods -n ot-operators | grep redis
 ```
 
 ## 3. Развёртывание standalone-Redis через YAML-манифест
-Создаём манифест с двумя экземплярами Redis:
+Создаём манифест с экземпляром Redis:
 
 ```bash
 cat <<EOF > redis-standalone.yaml
@@ -60,30 +60,11 @@ spec:
         resources:
           requests:
             storage: 1Gi
----
-apiVersion: redis.redis.opstreelabs.in/v1beta2
-kind: Redis
-metadata:
-  name: redis-standalone2
-  namespace: redis-standalone
-spec:
-  podSecurityContext:
-    runAsUser: 1000
-    fsGroup: 1000
-  kubernetesConfig:
-    image: quay.io/opstree/redis:v7.0.12
-  storage:
-    volumeClaimTemplate:
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 1Gi
 EOF
 ```
 
 ### Применение манифеста
-Redis-оператор автоматически создаёт Service-ресурсы `redis-standalone1` и `redis-standalone2`, которые открывают порт 6379. TLSRoute в дальнейшем будет ссылаться на эти сервисы, чтобы пробросить трафик от Envoy к каждому экземпляру.
+Redis-оператор автоматически создаёт Service-ресурс `redis-standalone1`, который открывает порт 6379. TLSRoute в дальнейшем будет ссылаться на этот сервис, чтобы пробросить трафик от Envoy к экземпляру.
 ```bash
 kubectl apply -f redis-standalone.yaml
 kubectl get pods -n redis-standalone
@@ -121,9 +102,6 @@ helm show values oci://docker.io/envoyproxy/gateway-helm --version v1.6.2 > defa
 yq -i 'del(.. | select( length == 0))' default-values.yaml
 sed -i '/{}/d' default-values.yaml
 ```
-
-## 5. Установка Certificate Authority на базе HashiCorp Vault
-Следуем инструкции https://habr.com/ru/articles/971494/. При установке cert-manager необходимо включить флаги GatewayAPI.
 
 ## 6. Установка cert-manager
 ```bash
@@ -163,29 +141,6 @@ EOF
 kubectl apply -f redis1-certificate.yaml
 ```
 
-### redis2
-```bash
-cat <<EOF > redis2-certificate.yaml
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: redis2-certificate
-  namespace: redis-standalone
-spec:
-  secretName: redis2-tls-cert
-  issuerRef:
-    name: vault-cluster-issuer
-    kind: ClusterIssuer
-  duration: 720h
-  renewBefore: 360h
-  commonName: app2.redis.apatsev.corp
-  dnsNames:
-  - app2.redis.apatsev.corp
-EOF
-
-kubectl apply -f redis2-certificate.yaml
-```
-
 ## 8. Настройка TLSRoute и Gateway
 ### GatewayClass
 ```bash
@@ -223,24 +178,13 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
-    - name: redis-cluster-2
-      protocol: TLS
-      port: 443
-      hostname: "app2.redis.apatsev.corp"
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - name: redis2-tls-cert
-      allowedRoutes:
-        namespaces:
-          from: All
 EOF
 
 kubectl apply -f gateway.yaml
 ```
 
 ### TLSRoute
-Каждому хосту соответствует собственный TLSRoute. Маршрут должен быть объявлен в том же пространстве имён, где расположены backend-сервисы (`redis-standalone`) и сертификаты. `sectionName` каждого `parentRef` должен совпадать с именем listener'а в Gateway, а `backendRefs` — ссылаться на сервис, который expose'ит порт 6379 для соответствующего Redis.
+Маршрут должен быть объявлен в том же пространстве имён, где расположены backend-сервисы (`redis-standalone`) и сертификаты. `sectionName` `parentRef` должен совпадать с именем listener'а в Gateway, а `backendRefs` — ссылаться на сервис, который expose'ит порт 6379 для Redis.
 
 ```bash
 cat <<EOF > tlsroute.yaml
@@ -262,25 +206,6 @@ spec:
     - backendRefs:
         - name: redis-standalone1
           port: 6379
----
-apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: TLSRoute
-metadata:
-  name: redis-cluster-2-route
-  namespace: redis-standalone
-  annotations:
-    cert-manager.io/cluster-issuer: vault-cluster-issuer
-spec:
-  parentRefs:
-    - name: redis-gateway
-      namespace: envoy-gateway
-      sectionName: redis-cluster-2
-  hostnames:
-    - "app2.redis.apatsev.corp"
-  rules:
-    - backendRefs:
-        - name: redis-standalone2
-          port: 6379
 EOF
 
 kubectl apply -f tlsroute.yaml
@@ -293,6 +218,4 @@ kubectl apply -f tlsroute.yaml
 kubectl run redis-client --rm -it --restart=Never --image=redis:alpine -- /bin/sh -c "
 redis-cli --tls --insecure -h app1.redis.apatsev.corp -p 443 PING"
 ```
-
-Повторите аналогичную проверку для `app2.redis.apatsev.corp`, чтобы убедиться, что оба TLSRoute работают корректно.
 
