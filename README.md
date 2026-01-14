@@ -127,7 +127,10 @@ EOF
 Redis-оператор автоматически создаёт Service-ресурс `redis-standalone1`, который открывает порт 6379. TLSRoute в дальнейшем будет ссылаться на этот сервис, чтобы пробросить трафик от Envoy к экземпляру.
 ```bash
 kubectl apply -f redis-standalone.yaml
+```
+
 # Debug: проверяем созданные ресурсы
+```
 kubectl get redis -n redis-standalone
 kubectl get pods -n redis-standalone
 kubectl get svc -n redis-standalone
@@ -186,9 +189,13 @@ spec:
 EOF
 ```
 
+Создаем сертификат
 ```bash
 kubectl apply -f wildcard-certificate.yaml
+```
+
 # Debug: проверяем создание сертификата
+```bash
 kubectl get certificate -n envoy-gateway
 kubectl describe certificate wildcard-certificate -n envoy-gateway
 kubectl get certificaterequest -n envoy-gateway
@@ -231,9 +238,13 @@ spec:
 EOF
 ```
 
+Создаем EnvoyProxy
 ```bash
 kubectl apply -f envoyproxy.yaml
+```
+
 # Debug: проверяем EnvoyProxy
+```bash
 kubectl get envoyproxy -n envoy-gateway-system
 kubectl describe envoyproxy envoy-gateway-config -n envoy-gateway-system
 ```
@@ -257,9 +268,12 @@ spec:
 EOF
 ```
 
+Создаем GatewayClass
 ```bash
 kubectl apply -f gatewayclass.yaml
+```
 # Debug: проверяем GatewayClass
+```
 kubectl get gatewayclass
 kubectl describe gatewayclass envoy
 ```
@@ -289,13 +303,16 @@ spec:
 EOF
 ```
 
+# Debug: проверяем Gateway и его статус
 ```bash
 kubectl apply -f gateway.yaml
-# Debug: проверяем Gateway и его статус
 kubectl get gateway -n envoy-gateway
 kubectl describe gateway redis-gateway -n envoy-gateway
 kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.addresses[*].value}' && echo
+```
+
 # Проверяем адрес LoadBalancer
+```
 kubectl get svc -n envoy-gateway | grep envoy
 ```
 
@@ -334,13 +351,20 @@ spec:
 EOF
 ```
 
+Создаем TLSRoute
 ```bash
 kubectl apply -f tlsroute.yaml
+```
+
 # Debug: проверяем TLSRoute и его статус
+```bash
 kubectl get tlsroute -n redis-standalone
 kubectl describe tlsroute redis-cluster-1-route -n redis-standalone
 kubectl get tlsroute redis-cluster-1-route -n redis-standalone -o jsonpath='{.status.parents[*].conditions[*].type}' && echo
+```
+
 # Проверяем связанные ресурсы
+```
 kubectl get gateway redis-gateway -n envoy-gateway -o yaml | grep -A 10 "listeners:"
 ```
 
