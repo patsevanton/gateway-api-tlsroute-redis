@@ -14,6 +14,45 @@ terraform apply -auto-approve
 yc managed-kubernetes cluster get-credentials --id id-кластера-k8s --external --force
 ```
 
+### 1. cert-manager
+
+Установите cert-manager для автоматизации TLS:
+
+```bash
+helm upgrade --install \
+  cert-manager oci://quay.io/jetstack/charts/cert-manager \
+  --version v1.19.2 \
+  --namespace cert-manager \
+  --create-namespace \
+  --set crds.enabled=true \
+  --wait \
+  --timeout 15m
+```
+
+После установки подключите ClusterIssuer (пример файла — [`cluster-issuer.yaml`](cluster-issuer.yaml:1)).
+
+```bash
+kubectl apply -f cluster-issuer.yaml
+```
+
+Содержимое cluster-issuer.yaml:
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: my-email@mycompany.com
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+```
+
 ## 2. Развертывание Redis-оператора (рекомендуемый способ)
 ### Добавление репозитория Helm
 ```bash
@@ -103,42 +142,30 @@ yq -i 'del(.. | select( length == 0))' default-values.yaml
 sed -i '/{}/d' default-values.yaml
 ```
 
-## 6. Установка cert-manager
-```bash
-helm repo add jetstack https://charts.jetstack.io
-helm repo update
-helm upgrade --install --wait cert-manager jetstack/cert-manager \
-  --namespace cert-manager \
-  --create-namespace \
-  --version v1.18.2 \
-  --set crds.enabled=true \
-  --set config.apiVersion="controller.config.cert-manager.io/v1alpha1" \
-  --set config.kind="ControllerConfiguration" \
-  --set config.enableGatewayAPI=true
-```
 
-## 7. Создание TLS-сертификатов для Redis
-### redis1
+## 7. Создание TLS-сертификата для Redis
+Создаём один wildcard-сертификат для всех поддоменов `*.apatsev.org.ru`:
+
 ```bash
-cat <<EOF > redis1-certificate.yaml
+cat <<EOF > wildcard-certificate.yaml
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: redis1-certificate
+  name: wildcard-certificate
   namespace: redis-standalone
 spec:
-  secretName: redis1-tls-cert
+  secretName: wildcard-tls-cert
   issuerRef:
     name: vault-cluster-issuer
     kind: ClusterIssuer
   duration: 720h
   renewBefore: 360h
-  commonName: app1.redis.apatsev.corp
+  commonName: "*.apatsev.org.ru"
   dnsNames:
-  - app1.redis.apatsev.corp
+  - "*.apatsev.org.ru"
 EOF
 
-kubectl apply -f redis1-certificate.yaml
+kubectl apply -f wildcard-certificate.yaml
 ```
 
 ## 8. Настройка TLSRoute и Gateway
@@ -170,11 +197,12 @@ spec:
     - name: redis-cluster-1
       protocol: TLS
       port: 443
-      hostname: "app1.redis.apatsev.corp"
+      hostname: "redis1.apatsev.org.ru"
       tls:
         mode: Terminate
         certificateRefs:
-          - name: redis1-tls-cert
+          - name: wildcard-tls-cert
+            namespace: redis-standalone
       allowedRoutes:
         namespaces:
           from: All
@@ -201,7 +229,7 @@ spec:
       namespace: envoy-gateway
       sectionName: redis-cluster-1
   hostnames:
-    - "app1.redis.apatsev.corp"
+    - "redis1.apatsev.org.ru"
   rules:
     - backendRefs:
         - name: redis-standalone1
@@ -216,6 +244,5 @@ kubectl apply -f tlsroute.yaml
 
 ```bash
 kubectl run redis-client --rm -it --restart=Never --image=redis:alpine -- /bin/sh -c "
-redis-cli --tls --insecure -h app1.redis.apatsev.corp -p 443 PING"
+redis-cli --tls --insecure -h redis1.apatsev.org.ru -p 443 PING"
 ```
-
