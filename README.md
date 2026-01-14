@@ -77,7 +77,10 @@ helm repo update ot-helm
 ```bash
 helm upgrade --install redis-operator ot-helm/redis-operator \
   --create-namespace --namespace ot-operators --wait --version 0.22.2
+```
+
 # Debug: проверяем установку оператора
+```bash
 helm list -n ot-operators
 kubectl get deployment -n ot-operators
 kubectl get crds | grep redis
