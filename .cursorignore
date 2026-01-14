@@ -1,0 +1,8 @@
+.cursorignore
+default-values.yaml
+externaldns
+gatewayclass.yaml
+gateway.yaml
+.git
+.gitignore
+LICENSE

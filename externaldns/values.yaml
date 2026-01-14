@@ -1,0 +1,18 @@
+extraVolumes:
+  - name: yandexconfig
+    secret:
+      secretName: yandexconfig
+logLevel: debug
+provider:
+  name: webhook
+  webhook:
+    image:
+      repository: ghcr.io/ismailbaskin/external-dns-yandex-webhook
+      tag: 1.0.0
+    args:
+      - --auth-key-file=/etc/kubernetes/key.json
+    extraVolumeMounts:
+      - name: yandexconfig
+        mountPath: /etc/kubernetes/
+    securityContext:
+      runAsUser: 1000
