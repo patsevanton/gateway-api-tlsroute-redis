@@ -35,7 +35,7 @@ helm upgrade --install \
 kubectl apply -f cluster-issuer.yaml
 ```
 
-Содержимое cluster-issuer.yaml:
+Содержимое cluster-issuer.yaml (пример для HTTP-01 challenge):
 ```yaml
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -52,6 +52,8 @@ spec:
         ingress:
           class: nginx
 ```
+
+**Примечание:** Для wildcard-сертификатов (например, `*.apatsev.org.ru`) требуется DNS-01 challenge вместо HTTP-01. В этом случае настройте DNS-01 solver для вашего DNS-провайдера в ClusterIssuer.
 
 ## 2. Развертывание Redis-оператора (рекомендуемый способ)
 ### Добавление репозитория Helm
@@ -143,7 +145,10 @@ sed -i '/{}/d' default-values.yaml
 ```
 
 
-## 7. Создание TLS-сертификата для Redis
+## 5. Создание TLS-сертификата для Redis
+
+**Важно:** Для wildcard-сертификатов (`*.apatsev.org.ru`) требуется DNS-01 challenge в ClusterIssuer, а не HTTP-01. Убедитесь, что ваш ClusterIssuer настроен с DNS-01 solver для вашего DNS-провайдера (например, Cloudflare, Route53, Yandex DNS и т.д.).
+
 Создаём один wildcard-сертификат для всех поддоменов `*.apatsev.org.ru`:
 
 ```bash
@@ -156,7 +161,7 @@ metadata:
 spec:
   secretName: wildcard-tls-cert
   issuerRef:
-    name: vault-cluster-issuer
+    name: letsencrypt-prod
     kind: ClusterIssuer
   duration: 720h
   renewBefore: 360h
@@ -168,7 +173,7 @@ EOF
 kubectl apply -f wildcard-certificate.yaml
 ```
 
-## 8. Настройка TLSRoute и Gateway
+## 6. Настройка TLSRoute и Gateway
 ### GatewayClass
 ```bash
 cat <<EOF > gatewayclass.yaml
@@ -221,8 +226,6 @@ kind: TLSRoute
 metadata:
   name: redis-cluster-1-route
   namespace: redis-standalone
-  annotations:
-    cert-manager.io/cluster-issuer: vault-cluster-issuer
 spec:
   parentRefs:
     - name: redis-gateway
@@ -239,7 +242,7 @@ EOF
 kubectl apply -f tlsroute.yaml
 ```
 
-## 9. Проверка доступности
+## 7. Проверка доступности
 Для проверки TLS-соединения запускаем временный под и обращаемся к слушателю на порту 443 через TLS. Поскольку Envoy выполняет termination, клиент должен установить TLS-сессию и, при необходимости, доверить сертификату (для теста можно использовать `--insecure`).
 
 ```bash
