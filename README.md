@@ -280,6 +280,8 @@ kubectl describe gateway redis-gateway -n envoy-gateway
 kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.addresses[*].value}' && echo
 # Проверяем адрес LoadBalancer
 kubectl get svc -n envoy-gateway | grep envoy
+# Важно: Если Gateway был создан до ReferenceGrant, может потребоваться пересоздать Gateway:
+# kubectl delete -f gateway.yaml && kubectl apply -f gateway.yaml
 ```
 
 ### TLSRoute
@@ -287,7 +289,7 @@ kubectl get svc -n envoy-gateway | grep envoy
 
 ```bash
 cat <<EOF > tlsroute.yaml
-apiVersion: gateway.networking.k8s.io/v1alpha2
+apiVersion: gateway.networking.k8s.io/v1alpha3
 kind: TLSRoute
 metadata:
   name: redis-cluster-1-route
