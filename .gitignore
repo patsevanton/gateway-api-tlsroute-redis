@@ -58,3 +58,4 @@ default-values.yaml
 gatewayclass.yaml
 tlsroute.yaml
 gateway.yaml
+key.json
