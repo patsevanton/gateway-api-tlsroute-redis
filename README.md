@@ -14,38 +14,21 @@ terraform apply -auto-approve
 yc managed-kubernetes cluster get-credentials --id id-кластера-k8s --external --force
 ```
 
-### 1. cert-manager с Yandex Cloud DNS ACME webhook
+### 1. Установка cert-manager с Yandex Cloud DNS ACME webhook
 
-Установите cert-manager для автоматизации TLS:
-
-```bash
-helm upgrade --install \
-  cert-manager oci://quay.io/jetstack/charts/cert-manager \
-  --version v1.19.2 \
-  --namespace cert-manager \
-  --create-namespace \
-  --set crds.enabled=true \
-  --wait \
-  --timeout 15m
-```
-
-#### 1.1. Установка Yandex Cloud DNS ACME webhook
-
-Для работы с wildcard-сертификатами через DNS-01 challenge установите webhook для Yandex Cloud DNS:
+Для работы с wildcard-сертификатами через DNS-01 challenge установите webhook для Yandex Cloud DNS (webhook также устанавливает cert-manager):
 
 ```bash
-# Скачиваем и распаковываем Helm-чарт
-helm pull oci://cr.yandex/yc-marketplace/yandex-cloud/cert-manager-webhook-yandex/cert-manager-webhook-yandex \
-  --version 1.0.9 \
-  --untar && \
 helm install \
+  cert-manager-webhook-yandex \
+  oci://cr.yandex/yc-marketplace/yandex-cloud/cert-manager-webhook-yandex/cert-manager-webhook-yandex \
+  --version 1.0.9 \
   --namespace cert-manager \
   --create-namespace \
   --set-file config.auth.json=key.json \
   --set config.email='<адрес_электронной_почты_для_уведомлений_от_Lets_Encrypt>' \
   --set config.folder_id='<идентификатор_каталога_с_зоной_Cloud_DNS>' \
-  --set config.server='https://acme-v02.api.letsencrypt.org/directory' \
-  cert-manager-webhook-yandex ./cert-manager-webhook-yandex/
+  --set config.server='https://acme-v02.api.letsencrypt.org/directory'
 ```
 
 **Примечание:** 
@@ -53,7 +36,7 @@ helm install \
 - Замените `<идентификатор_каталога_с_зоной_Cloud_DNS>` на folder_id (можно получить через `terraform output -raw folder_id`).
 - Файл `key.json` должен содержать ключ сервисного аккаунта с ролью `dns.editor` (создаётся через Terraform, см. раздел 1.2).
 
-#### 1.2. Создание сервисного аккаунта для управления DNS
+#### 1.1. Создание сервисного аккаунта для управления DNS
 
 Сервисный аккаунт с ролью `dns.editor` и авторизованный ключ создаются через Terraform (см. `service-accounts.tf`):
 
@@ -64,7 +47,7 @@ terraform apply
 
 Сервисный аккаунт `sa-dns-manager` с ролью `dns.editor` и ключом будут созданы автоматически.
 
-#### 1.3. Создание Kubernetes Secret
+#### 1.2. Создание Kubernetes Secret
 
 Создайте Secret в кластере с ключом сервисного аккаунта из Terraform output:
 
@@ -81,7 +64,7 @@ kubectl create secret generic cert-manager-yandex-dns \
 rm iamkey.json
 ```
 
-#### 1.4. Настройка ClusterIssuer
+#### 1.3. Настройка ClusterIssuer
 
 Создайте ClusterIssuer с DNS-01 solver для Yandex Cloud DNS:
 
