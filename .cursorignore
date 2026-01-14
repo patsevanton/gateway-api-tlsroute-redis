@@ -2,7 +2,6 @@ cilium-app.tf
 cilium-redis.tf
 .cursorignore
 default-values.yaml
-dns.tf
 externaldns
 gatewayclass.yaml
 gateway.yaml

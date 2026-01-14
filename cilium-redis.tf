@@ -82,7 +82,7 @@ resource "helm_release" "envoy_gateway" {
   name             = "envoy-gateway"
   repository       = "oci://docker.io/envoyproxy"
   chart            = "gateway-helm"
-  version          = "v1.6.0"
+  version          = "v1.6.2"
   namespace        = "envoy-gateway"
   create_namespace = true
   depends_on       = [yandex_kubernetes_node_group.k8s_node_group_cilium_redis]
