@@ -24,8 +24,15 @@ yc managed-kubernetes cluster get-credentials --id id-кластера-k8s --ext
 terraform output -raw dns_manager_service_account_key | python3 -m json.tool | grep -v description | grep -v encrypted_private_key | grep -v format | grep -v key_fingerprint | grep -v pgp_key > key.json
 ```
 
-# Debug: проверяем созданный файл
+**Важно:** Удалите из `key.json` поля `output_to_lockbox` и `output_to_lockbox_version_id`, которые не поддерживаются cert-manager-webhook-yandex и вызывают ошибку `proto: unknown field "output_to_lockbox"`:
+
+```bash
+# Удаляем неподдерживаемые поля из key.json
+jq 'del(.output_to_lockbox, .output_to_lockbox_version_id)' key.json > key.json.tmp && mv key.json.tmp key.json
 ```
+
+# Debug: проверяем созданный файл
+```bash
 cat key.json | jq -r '.service_account_id'
 ```
 
