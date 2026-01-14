@@ -18,7 +18,11 @@ yc managed-kubernetes cluster get-credentials --id id-кластера-k8s --ext
 
 Для работы с wildcard-сертификатами через DNS-01 challenge установите webhook для Yandex Cloud DNS (webhook также устанавливает cert-manager):
 
+
 ```bash
+# Получаем ключ сервисного аккаунта из Terraform output
+terraform output -raw dns_manager_service_account_key > key.json
+
 helm install \
   cert-manager-webhook-yandex \
   oci://cr.yandex/yc-marketplace/yandex-cloud/cert-manager-webhook-yandex/cert-manager-webhook-yandex \
@@ -31,10 +35,18 @@ helm install \
   --set config.server='https://acme-v02.api.letsencrypt.org/directory'
 ```
 
+### Проверка установки ClusterIssuer
+Проверяем, что ClusterIssuer `yc-clusterissuer` успешно создан:
+
+```bash
+kubectl get clusterissuer yc-clusterissuer
+```
+
 **Примечание:** 
 - Замените `<адрес_электронной_почты_для_уведомлений_от_Lets_Encrypt>` на ваш email адрес.
 - Замените `<идентификатор_каталога_с_зоной_Cloud_DNS>` на folder_id (можно получить через `terraform output -raw folder_id`).
-- Файл `key.json` должен содержать ключ сервисного аккаунта с ролью `dns.editor` (создаётся через Terraform, см. раздел 1.2).
+- Файл `key.json` должен содержать ключ сервисного аккаунта с ролью `dns.editor` (создаётся через Terraform, см. раздел 1.1).
+- При установке автоматически создаётся ClusterIssuer с именем `yc-clusterissuer`, который можно использовать вместо создания собственного (см. раздел 1.3).
 
 #### 1.1. Создание сервисного аккаунта для управления DNS
 
@@ -47,7 +59,11 @@ terraform apply
 
 Сервисный аккаунт `sa-dns-manager` с ролью `dns.editor` и ключом будут созданы автоматически.
 
-#### 1.2. Создание Kubernetes Secret
+#### 1.2. Создание Kubernetes Secret (опционально)
+
+**Примечание:** Если вы используете автоматически созданный ClusterIssuer `yc-clusterissuer` (см. раздел 1.3), создание Secret вручную не требуется, так как ключ передаётся через `--set-file config.auth.json=key.json` при установке.
+
+Создание Secret необходимо только если вы хотите использовать собственный ClusterIssuer:
 
 Создайте Secret в кластере с ключом сервисного аккаунта из Terraform output:
 
@@ -63,42 +79,6 @@ kubectl create secret generic cert-manager-yandex-dns \
 # Удаляем временный файл (опционально)
 rm iamkey.json
 ```
-
-#### 1.3. Настройка ClusterIssuer
-
-Создайте ClusterIssuer с DNS-01 solver для Yandex Cloud DNS:
-
-```bash
-# Получаем folder-id из Terraform output
-FOLDER_ID=$(terraform output -raw folder_id)
-
-cat <<EOF > cluster-issuer.yaml
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-prod
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: my-email@mycompany.com
-    privateKeySecretRef:
-      name: letsencrypt-prod
-    solvers:
-    - dns01:
-        webhook:
-          groupName: acme.yandex.cloud
-          solverName: yandex
-          config:
-            folderId: ${FOLDER_ID}
-            serviceAccountKeySecretRef:
-              name: cert-manager-yandex-dns
-              key: iamkey.json
-EOF
-
-kubectl apply -f cluster-issuer.yaml
-```
-
-**Примечание:** Замените `my-email@mycompany.com` на ваш email адрес для Let's Encrypt уведомлений.
 
 ## 2. Развертывание Redis-оператора (рекомендуемый способ)
 ### Добавление репозитория Helm
@@ -206,11 +186,10 @@ metadata:
 spec:
   secretName: wildcard-tls-cert
   issuerRef:
-    name: letsencrypt-prod
+    name: yc-clusterissuer
     kind: ClusterIssuer
   duration: 720h
   renewBefore: 360h
-  commonName: "*.apatsev.org.ru"
   dnsNames:
   - "*.apatsev.org.ru"
 EOF
