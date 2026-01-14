@@ -21,7 +21,7 @@ yc managed-kubernetes cluster get-credentials --id id-кластера-k8s --ext
 
 ```bash
 # Получаем ключ сервисного аккаунта из Terraform output
-terraform output -raw dns_manager_service_account_key > key.json
+terraform output -raw dns_manager_service_account_key | python3 -m json.tool | grep -v description | grep -v encrypted_private_key | grep -v format | grep -v key_fingerprint | grep -v pgp_key > key.json
 
 helm install \
   cert-manager-webhook-yandex \
@@ -59,7 +59,7 @@ kubectl get clusterissuer yc-clusterissuer
 
 ```bash
 # Получаем ключ из Terraform output и сохраняем в файл
-terraform output -raw dns_manager_service_account_key > iamkey.json
+terraform output -raw dns_manager_service_account_key | python3 -m json.tool | grep -v description | grep -v encrypted_private_key | grep -v format | grep -v key_fingerprint | grep -v pgp_key > iamkey.json
 
 # Создаём Secret в кластере
 kubectl create secret generic cert-manager-yandex-dns \
