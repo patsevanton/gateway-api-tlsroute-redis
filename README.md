@@ -235,7 +235,7 @@ apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
 metadata:
   name: envoy-gateway-config
-  namespace: envoy-gateway-system
+  namespace: envoy-gateway
 spec:
   mergeGateways: true
 EOF
@@ -248,8 +248,8 @@ kubectl apply -f envoyproxy.yaml
 
 # Debug: проверяем EnvoyProxy
 ```bash
-kubectl get envoyproxy -n envoy-gateway-system
-kubectl describe envoyproxy envoy-gateway-config -n envoy-gateway-system
+kubectl get envoyproxy -n envoy-gateway
+kubectl describe envoyproxy envoy-gateway-config -n envoy-gateway
 ```
 
 ### GatewayClass
@@ -267,7 +267,7 @@ spec:
     group: gateway.envoyproxy.io
     kind: EnvoyProxy
     name: envoy-gateway-config
-    namespace: envoy-gateway-system
+    namespace: envoy-gateway
 EOF
 ```
 
