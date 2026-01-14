@@ -1,0 +1,16 @@
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: redis-cluster-1-route
+  namespace: redis-standalone
+spec:
+  parentRefs:
+    - name: redis-gateway
+      namespace: envoy-gateway
+      sectionName: redis-cluster-1
+  hostnames:
+    - "redis1.apatsev.org.ru"
+  rules:
+    - backendRefs:
+        - name: redis-standalone1
+          port: 6379

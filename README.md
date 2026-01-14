@@ -19,10 +19,12 @@ yc managed-kubernetes cluster get-credentials --id id-кластера-k8s --ext
 Для работы с wildcard-сертификатами через DNS-01 challenge установите webhook для Yandex Cloud DNS (webhook также устанавливает cert-manager):
 
 
-```bash
 # Получаем ключ сервисного аккаунта из Terraform output
+```bash
 terraform output -raw dns_manager_service_account_key | python3 -m json.tool | grep -v description | grep -v encrypted_private_key | grep -v format | grep -v key_fingerprint | grep -v pgp_key > key.json
+```
 
+```
 helm upgrade --install \
   cert-manager-webhook-yandex \
   oci://cr.yandex/yc-marketplace/yandex-cloud/cert-manager-webhook-yandex/cert-manager-webhook-yandex \
@@ -31,7 +33,7 @@ helm upgrade --install \
   --create-namespace \
   --set-file config.auth.json=key.json \
   --set config.email='my-email@mycompany.com' \
-  --set config.folder_id='<идентификатор_каталога_с_зоной_Cloud_DNS>' \
+  --set config.folder_id='b1g972v94kscfi3qmfmh' \
   --set config.server='https://acme-v02.api.letsencrypt.org/directory'
 ```
 
@@ -48,27 +50,6 @@ kubectl get clusterissuer yc-clusterissuer
 - Файл `key.json` должен содержать ключ сервисного аккаунта с ролью `dns.editor` (создаётся через Terraform, см. раздел 1.1).
 - При установке автоматически создаётся ClusterIssuer с именем `yc-clusterissuer`, который можно использовать вместо создания собственного (см. раздел 1.3).
 
-
-#### 1.2. Создание Kubernetes Secret (опционально)
-
-**Примечание:** Если вы используете автоматически созданный ClusterIssuer `yc-clusterissuer` (см. раздел 1.3), создание Secret вручную не требуется, так как ключ передаётся через `--set-file config.auth.json=key.json` при установке.
-
-Создание Secret необходимо только если вы хотите использовать собственный ClusterIssuer:
-
-Создайте Secret в кластере с ключом сервисного аккаунта из Terraform output:
-
-```bash
-# Получаем ключ из Terraform output и сохраняем в файл
-terraform output -raw dns_manager_service_account_key | python3 -m json.tool | grep -v description | grep -v encrypted_private_key | grep -v format | grep -v key_fingerprint | grep -v pgp_key > iamkey.json
-
-# Создаём Secret в кластере
-kubectl create secret generic cert-manager-yandex-dns \
-  --from-file=iamkey.json=iamkey.json \
-  -n cert-manager
-
-# Удаляем временный файл (опционально)
-rm iamkey.json
-```
 
 ## 2. Развертывание Redis-оператора (рекомендуемый способ)
 ### Добавление репозитория Helm

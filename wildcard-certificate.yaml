@@ -1,0 +1,14 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-certificate
+  namespace: redis-standalone
+spec:
+  secretName: wildcard-tls-cert
+  issuerRef:
+    name: yc-clusterissuer
+    kind: ClusterIssuer
+  duration: 720h
+  renewBefore: 360h
+  dnsNames:
+  - "*.apatsev.org.ru"
