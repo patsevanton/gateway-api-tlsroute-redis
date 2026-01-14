@@ -30,7 +30,7 @@ helm upgrade --install \
   --namespace cert-manager \
   --create-namespace \
   --set-file config.auth.json=key.json \
-  --set config.email='<адрес_электронной_почты_для_уведомлений_от_Lets_Encrypt>' \
+  --set config.email='my-email@mycompany.com' \
   --set config.folder_id='<идентификатор_каталога_с_зоной_Cloud_DNS>' \
   --set config.server='https://acme-v02.api.letsencrypt.org/directory'
 ```
