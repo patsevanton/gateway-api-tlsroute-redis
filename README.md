@@ -164,7 +164,16 @@ resource "helm_release" "envoy_gateway" {
     }
   ]
 }
+
+resource "local_file" "envoyproxy_yaml" {
+  content = templatefile("${path.module}/envoyproxy.yaml.tpl", {
+    load_balancer_ip = yandex_vpc_address.addr.external_ipv4_address[0].address
+  })
+  filename = "${path.module}/envoyproxy.yaml"
+}
 ```
+
+**Примечание:** Файл `envoyproxy.yaml` генерируется автоматически через Terraform из шаблона `envoyproxy.yaml.tpl` с использованием функции `templatefile`. IP-адрес LoadBalancer получается из `yandex_vpc_address.addr.external_ipv4_address[0].address` и вставляется в секцию `provider.kubernetes.envoyService.patch.value.spec.loadBalancerIP`.
 
 
 ## 5. Создание TLS-сертификата для Redis
@@ -229,27 +238,41 @@ kubectl get secret wildcard-tls-cert -n envoy-gateway
 
 Все listeners из разных Gateway будут объединены в один Envoy Proxy. Должны быть уникальны комбинации: (port, protocol, hostname).
 
-```bash
-cat <<EOF > envoyproxy.yaml
+**Важно:** Файл `envoyproxy.yaml` генерируется автоматически через Terraform при применении конфигурации. Шаблон `envoyproxy.yaml.tpl` содержит конфигурацию с LoadBalancer IP, который настраивается через секцию `provider.kubernetes.envoyService.patch`.
+
+Сгенерированный файл будет содержать:
+
+```yaml
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
 metadata:
-  name: envoy-gateway-config
+  name: merged-proxy
   namespace: envoy-gateway
 spec:
   mergeGateways: true
-EOF
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              type: LoadBalancer
+              loadBalancerIP: <IP_из_yandex_vpc_address>
 ```
 
 Создаем EnvoyProxy
 ```bash
+# Файл envoyproxy.yaml генерируется через Terraform
+terraform apply
 kubectl apply -f envoyproxy.yaml
 ```
 
 # Debug: проверяем EnvoyProxy
 ```bash
 kubectl get envoyproxy -n envoy-gateway
-kubectl describe envoyproxy envoy-gateway-config -n envoy-gateway
+kubectl describe envoyproxy merged-proxy -n envoy-gateway
 ```
 
 ### GatewayClass
@@ -266,10 +289,12 @@ spec:
   parametersRef:
     group: gateway.envoyproxy.io
     kind: EnvoyProxy
-    name: envoy-gateway-config
+    name: merged-proxy
     namespace: envoy-gateway
 EOF
 ```
+
+**Примечание:** Имя EnvoyProxy должно быть `merged-proxy` (как указано в сгенерированном файле `envoyproxy.yaml`).
 
 Создаем GatewayClass
 ```bash

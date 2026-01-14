@@ -14,4 +14,4 @@ spec:
           value:
             spec:
               type: LoadBalancer
-              loadBalancerIP: <IP_будет_подставлен_через_terraform>
+              loadBalancerIP: ${load_balancer_ip}

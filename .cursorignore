@@ -8,7 +8,6 @@ LICENSE
 local.tf
 outputs.tf
 providers.tf
-README.md
 redis-standalone.yaml
 service-accounts.tf
 .terraform

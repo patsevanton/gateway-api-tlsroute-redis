@@ -96,6 +96,13 @@ resource "helm_release" "envoy_gateway" {
   ]
 }
 
+resource "local_file" "envoyproxy_yaml" {
+  content = templatefile("${path.module}/envoyproxy.yaml.tpl", {
+    load_balancer_ip = yandex_vpc_address.addr.external_ipv4_address[0].address
+  })
+  filename = "${path.module}/envoyproxy.yaml"
+}
+
 output "get_credentials_command_cilium_redis" {
   description = "Command to get kubeconfig for the Cilium Redis cluster"
   value       = "yc managed-kubernetes cluster get-credentials --id ${yandex_kubernetes_cluster.cilium-redis.id} --external --force"
