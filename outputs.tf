@@ -7,8 +7,8 @@ output "dns_manager_service_account_id" {
 }
 
 output "dns_manager_service_account_key" {
-  description = "Key of the service account for DNS management"
-  value       = jsonencode(yandex_iam_service_account_key.sa-dns-manager-key)
+  description = "Key of the service account for DNS management (JSON format)"
+  value       = yandex_iam_service_account_key.sa-dns-manager-key.private_key
   sensitive   = true
 }
 

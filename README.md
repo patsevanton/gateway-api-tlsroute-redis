@@ -14,7 +14,7 @@ terraform apply -auto-approve
 yc managed-kubernetes cluster get-credentials --id id-кластера-k8s --external --force
 ```
 
-### 1. cert-manager
+### 1. cert-manager с Yandex Cloud DNS ACME webhook
 
 Установите cert-manager для автоматизации TLS:
 
@@ -29,14 +29,67 @@ helm upgrade --install \
   --timeout 15m
 ```
 
-После установки подключите ClusterIssuer (пример файла — [`cluster-issuer.yaml`](cluster-issuer.yaml:1)).
+#### 1.1. Установка Yandex Cloud DNS ACME webhook
+
+Для работы с wildcard-сертификатами через DNS-01 challenge установите webhook для Yandex Cloud DNS:
 
 ```bash
-kubectl apply -f cluster-issuer.yaml
+# Скачиваем и распаковываем Helm-чарт
+helm pull oci://cr.yandex/yc-marketplace/yandex-cloud/cert-manager-webhook-yandex/cert-manager-webhook-yandex \
+  --version 1.0.9 \
+  --untar && \
+helm install \
+  --namespace cert-manager \
+  --create-namespace \
+  --set-file config.auth.json=key.json \
+  --set config.email='<адрес_электронной_почты_для_уведомлений_от_Lets_Encrypt>' \
+  --set config.folder_id='<идентификатор_каталога_с_зоной_Cloud_DNS>' \
+  --set config.server='https://acme-v02.api.letsencrypt.org/directory' \
+  cert-manager-webhook-yandex ./cert-manager-webhook-yandex/
 ```
 
-Содержимое cluster-issuer.yaml (пример для HTTP-01 challenge):
-```yaml
+**Примечание:** 
+- Замените `<адрес_электронной_почты_для_уведомлений_от_Lets_Encrypt>` на ваш email адрес.
+- Замените `<идентификатор_каталога_с_зоной_Cloud_DNS>` на folder_id (можно получить через `terraform output -raw folder_id`).
+- Файл `key.json` должен содержать ключ сервисного аккаунта с ролью `dns.editor` (создаётся через Terraform, см. раздел 1.2).
+
+#### 1.2. Создание сервисного аккаунта для управления DNS
+
+Сервисный аккаунт с ролью `dns.editor` и авторизованный ключ создаются через Terraform (см. `service-accounts.tf`):
+
+```bash
+# Применяем Terraform конфигурацию
+terraform apply
+```
+
+Сервисный аккаунт `sa-dns-manager` с ролью `dns.editor` и ключом будут созданы автоматически.
+
+#### 1.3. Создание Kubernetes Secret
+
+Создайте Secret в кластере с ключом сервисного аккаунта из Terraform output:
+
+```bash
+# Получаем ключ из Terraform output и сохраняем в файл
+terraform output -raw dns_manager_service_account_key > iamkey.json
+
+# Создаём Secret в кластере
+kubectl create secret generic cert-manager-yandex-dns \
+  --from-file=iamkey.json=iamkey.json \
+  -n cert-manager
+
+# Удаляем временный файл (опционально)
+rm iamkey.json
+```
+
+#### 1.4. Настройка ClusterIssuer
+
+Создайте ClusterIssuer с DNS-01 solver для Yandex Cloud DNS:
+
+```bash
+# Получаем folder-id из Terraform output
+FOLDER_ID=$(terraform output -raw folder_id)
+
+cat <<EOF > cluster-issuer.yaml
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -48,12 +101,21 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod
     solvers:
-    - http01:
-        ingress:
-          class: nginx
+    - dns01:
+        webhook:
+          groupName: acme.yandex.cloud
+          solverName: yandex
+          config:
+            folderId: ${FOLDER_ID}
+            serviceAccountKeySecretRef:
+              name: cert-manager-yandex-dns
+              key: iamkey.json
+EOF
+
+kubectl apply -f cluster-issuer.yaml
 ```
 
-**Примечание:** Для wildcard-сертификатов (например, `*.apatsev.org.ru`) требуется DNS-01 challenge вместо HTTP-01. В этом случае настройте DNS-01 solver для вашего DNS-провайдера в ClusterIssuer.
+**Примечание:** Замените `my-email@mycompany.com` на ваш email адрес для Let's Encrypt уведомлений.
 
 ## 2. Развертывание Redis-оператора (рекомендуемый способ)
 ### Добавление репозитория Helm
@@ -147,7 +209,7 @@ sed -i '/{}/d' default-values.yaml
 
 ## 5. Создание TLS-сертификата для Redis
 
-**Важно:** Для wildcard-сертификатов (`*.apatsev.org.ru`) требуется DNS-01 challenge в ClusterIssuer, а не HTTP-01. Убедитесь, что ваш ClusterIssuer настроен с DNS-01 solver для вашего DNS-провайдера (например, Cloudflare, Route53, Yandex DNS и т.д.).
+**Важно:** Для wildcard-сертификатов (`*.apatsev.org.ru`) используется DNS-01 challenge через Yandex Cloud DNS ACME webhook, который был настроен в разделе 1. Webhook автоматически создаст необходимые TXT-записи в DNS-зоне для прохождения ACME challenge.
 
 Создаём один wildcard-сертификат для всех поддоменов `*.apatsev.org.ru`:
 
