@@ -52,7 +52,7 @@ resource "yandex_kubernetes_node_group" "k8s_node_group_cilium_redis" {
 
   scale_policy {
     fixed_scale {
-      size = 3 # Фиксированное количество нод
+      size = 3
     }
   }
 
@@ -63,21 +63,18 @@ resource "yandex_kubernetes_node_group" "k8s_node_group_cilium_redis" {
   }
 }
 
-
-# Настройка провайдера Helm для установки чарта в Kubernetes
 provider "helm" {
   kubernetes = {
-    host                   = yandex_kubernetes_cluster.cilium-redis.master[0].external_v4_endpoint  # Адрес API Kubernetes
-    cluster_ca_certificate = yandex_kubernetes_cluster.cilium-redis.master[0].cluster_ca_certificate  # CA-сертификат
+    host                   = yandex_kubernetes_cluster.cilium-redis.master[0].external_v4_endpoint
+    cluster_ca_certificate = yandex_kubernetes_cluster.cilium-redis.master[0].cluster_ca_certificate
     exec = {
       api_version = "client.authentication.k8s.io/v1beta1"
-      args        = ["k8s", "create-token"]  # Команда получения токена через CLI Yandex.Cloud
+      args        = ["k8s", "create-token"]
       command     = "yc"
     }
   }
 }
 
-# Установка Envoy Gateway через Helm (соответствует команде helm install envoy-gateway oci://docker.io/envoyproxy/gateway-helm ...)
 resource "helm_release" "envoy_gateway" {
   name             = "envoy-gateway"
   repository       = "oci://docker.io/envoyproxy"
@@ -94,7 +91,7 @@ resource "helm_release" "envoy_gateway" {
     },
     {
       name  = "service.loadBalancerIP"
-      value = yandex_vpc_address.addr.external_ipv4_address[0].address  # Присвоение внешнего IP балансировщику
+      value = yandex_vpc_address.addr.external_ipv4_address[0].address
     }
   ]
 }
