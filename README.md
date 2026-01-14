@@ -173,7 +173,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: wildcard-certificate
-  namespace: redis-standalone
+  namespace: envoy-gateway
 spec:
   secretName: wildcard-tls-cert
   issuerRef:
@@ -189,12 +189,12 @@ EOF
 ```bash
 kubectl apply -f wildcard-certificate.yaml
 # Debug: проверяем создание сертификата
-kubectl get certificate -n redis-standalone
-kubectl describe certificate wildcard-certificate -n redis-standalone
-kubectl get certificaterequest -n redis-standalone
-kubectl get secret wildcard-tls-cert -n redis-standalone
+kubectl get certificate -n envoy-gateway
+kubectl describe certificate wildcard-certificate -n envoy-gateway
+kubectl get certificaterequest -n envoy-gateway
+kubectl get secret wildcard-tls-cert -n envoy-gateway
 # Проверяем статус сертификата (может занять время)
-kubectl get certificate wildcard-certificate -n redis-standalone -o jsonpath='{.status.conditions[*].type}' && echo
+kubectl get certificate wildcard-certificate -n envoy-gateway -o jsonpath='{.status.conditions[*].type}' && echo
 ```
 
 ## 6. Настройка TLSRoute и Gateway
@@ -203,40 +203,12 @@ kubectl get certificate wildcard-certificate -n redis-standalone -o jsonpath='{.
 
 ```bash
 # Ожидаем готовности сертификата (может занять несколько минут)
-kubectl wait --for=condition=Ready certificate/wildcard-certificate -n redis-standalone --timeout=5m
+kubectl wait --for=condition=Ready certificate/wildcard-certificate -n envoy-gateway --timeout=5m
 # Проверяем наличие Secret
-kubectl get secret wildcard-tls-cert -n redis-standalone
+kubectl get secret wildcard-tls-cert -n envoy-gateway
 ```
 
-### ReferenceGrant
-
-**Важно:** Gateway API требует создания ReferenceGrant для кросс‑неймспейсных ссылок на ресурсы. Поскольку Gateway в пространстве имён `envoy-gateway` ссылается на Secret `wildcard-tls-cert` в пространстве имён `redis-standalone`, необходимо создать ReferenceGrant в пространстве имён `redis-standalone`, который разрешает эту ссылку. ReferenceGrant **должен быть создан до Gateway**.
-
-```bash
-cat <<EOF > referencegrant.yaml
-apiVersion: gateway.networking.k8s.io/v1beta1
-kind: ReferenceGrant
-metadata:
-  name: allow-gateway-to-cert
-  namespace: redis-standalone
-spec:
-  from:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    namespace: envoy-gateway
-  to:
-  - group: ""
-    kind: Secret
-    name: wildcard-tls-cert
-EOF
-```
-
-```bash
-kubectl apply -f referencegrant.yaml
-# Debug: проверяем ReferenceGrant
-kubectl get referencegrant -n redis-standalone
-kubectl describe referencegrant allow-gateway-to-cert -n redis-standalone
-```
+**Примечание:** Secret `wildcard-tls-cert` создаётся в том же namespace `envoy-gateway`, где находится Gateway, поэтому ReferenceGrant не требуется. Gateway API позволяет ссылаться на ресурсы в том же namespace без дополнительных разрешений.
 
 ### EnvoyProxy (Merge Gateways)
 
@@ -311,7 +283,6 @@ spec:
         mode: Terminate
         certificateRefs:
           - name: wildcard-tls-cert
-            namespace: redis-standalone
       allowedRoutes:
         namespaces:
           from: All
@@ -328,13 +299,15 @@ kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.address
 kubectl get svc -n envoy-gateway | grep envoy
 ```
 
-**Устранение проблем:** Если Gateway показывает ошибку "Certificate ref to secret ... not permitted by any ReferenceGrant" или "No addresses have been assigned", выполните:
+**Устранение проблем:** Если Gateway показывает ошибку "No addresses have been assigned" или проблемы с сертификатом, выполните:
 
 ```bash
-# Пересоздаём Gateway (если он был создан до ReferenceGrant или сертификата)
+# Пересоздаём Gateway (если он был создан до сертификата)
 kubectl delete -f gateway.yaml && kubectl apply -f gateway.yaml
 # Проверяем статус после пересоздания
 kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.conditions[*].type}' && echo
+# Проверяем наличие Secret в правильном namespace
+kubectl get secret wildcard-tls-cert -n envoy-gateway
 ```
 
 ### TLSRoute
