@@ -7,11 +7,7 @@
 - Managed-сервисы требуют существенных затрат, тогда как stateful-сервисы позволяют использовать собственные кластеры с контролем затрат.
 - Размещение stateful-сервисов в том же кластере ограничивает возможности обновления операторов и самих сервисов, поэтому стоит вынести их в отдельный кластер.
 
-Обычно stateful-сервисы коммуницируют с приложениями через внутренний балансировщик, как показано ниже:
-![обращение приложений в stateful сервисы](обращение_приложений_в_stateful_сервисы.png)
-
 ## 1. Установка кластера Kubernetes
-Переходим в директорию `terraform`, чтобы развернуть инфраструктуру и получить доступ к кластеру:
 
 ```bash
 terraform apply -auto-approve
@@ -101,7 +97,7 @@ resource "helm_release" "envoy_gateway" {
   name             = "envoy-gateway"
   repository       = "oci://docker.io/envoyproxy"
   chart            = "gateway-helm"
-  version          = "v1.6.0"
+  version          = "v1.6.2"
   namespace        = "envoy-gateway"
   create_namespace = true
   depends_on       = [yandex_kubernetes_node_group.k8s_node_group_cilium_redis]
@@ -121,7 +117,7 @@ resource "helm_release" "envoy_gateway" {
 
 ### Получение стандартных значений чарта
 ```bash
-helm show values oci://docker.io/envoyproxy/gateway-helm --version v1.6.0 > default-values.yaml
+helm show values oci://docker.io/envoyproxy/gateway-helm --version v1.6.2 > default-values.yaml
 yq -i 'del(.. | select( length == 0))' default-values.yaml
 sed -i '/{}/d' default-values.yaml
 ```
