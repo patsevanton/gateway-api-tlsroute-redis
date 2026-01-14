@@ -2,8 +2,7 @@
 
 # Скрипт для проверки всех компонентов установки
 # Собран из команд Debug из README.md
-
-set -e
+# Скрипт продолжает выполнение даже при ошибках проверки отдельных компонентов
 
 echo "=========================================="
 echo "Проверка установки компонентов"
@@ -68,10 +67,10 @@ echo "Pods с redis в namespace ot-operators:"
 kubectl get pods -n ot-operators | grep redis || echo "⚠️  Pods Redis оператора не найдены"
 echo ""
 echo "Детальная информация о подах Redis оператора:"
-kubectl get pods -n ot-operators -l app.kubernetes.io/name=redis-operator || echo "⚠️  Pods с label app.kubernetes.io/name=redis-operator не найдены"
+kubectl get pods -n ot-operators -l name=redis-operator || echo "⚠️  Pods с label name=redis-operator не найдены"
 echo ""
 echo "Логи Redis оператора (последние 20 строк):"
-kubectl logs -n ot-operators -l app.kubernetes.io/name=redis-operator --tail=20 || echo "⚠️  Не удалось получить логи"
+kubectl logs -n ot-operators -l name=redis-operator --tail=20 || echo "⚠️  Не удалось получить логи"
 
 # 7. Проверка Redis standalone
 echo ""
@@ -133,6 +132,9 @@ kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.address
 echo ""
 echo "Services envoy-gateway:"
 kubectl get svc -n envoy-gateway | grep envoy || echo "⚠️  Services envoy-gateway не найдены"
+echo ""
+echo "Примечание: Если Gateway был создан до ReferenceGrant, может потребоваться пересоздать Gateway:"
+echo "  kubectl delete -f gateway.yaml && kubectl apply -f gateway.yaml"
 
 # 11. Проверка ReferenceGrant
 echo ""
@@ -165,10 +167,13 @@ echo ""
 echo "13. Проверка подключения и логов"
 echo "----------------------------------------"
 echo "Логи envoy-gateway (последние 50 строк, фильтр по redis):"
-kubectl logs -n envoy-gateway -l app.kubernetes.io/name=envoy-gateway --tail=50 | grep -i redis || echo "⚠️  Логи с упоминанием redis не найдены. Проверьте логи envoy-gateway вручную"
+kubectl logs -n envoy-gateway -l app.kubernetes.io/instance=envoy-gateway --tail=50 | grep -i redis || echo "⚠️  Логи с упоминанием redis не найдены. Проверьте логи envoy-gateway вручную"
 echo ""
 echo "Проверка доступности Redis через Service (без TLS):"
 kubectl run debug-client --rm -i --restart=Never --image=busybox -- nc -zv redis-standalone1.redis-standalone.svc.cluster.local 6379 || echo "⚠️  Не удалось подключиться к Redis через Service"
+echo ""
+echo "Примечание: Для проверки TLS-подключения к redis1.apatsev.org.ru:443 выполните вручную:"
+echo "  kubectl run redis-client --rm -it --restart=Never --image=redis:alpine -- /bin/sh -c \"redis-cli --tls --insecure -h redis1.apatsev.org.ru -p 443 PING\""
 
 echo ""
 echo "=========================================="

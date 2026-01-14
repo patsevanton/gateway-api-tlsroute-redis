@@ -68,7 +68,6 @@ kubectl get clusterissuer yc-clusterissuer -o yaml | grep -A 5 "status:"
 ### Добавление репозитория Helm
 ```bash
 helm repo add ot-helm https://ot-container-kit.github.io/helm-charts/
-# Debug: проверяем добавленный репозиторий
 helm repo update ot-helm
 ```
 
@@ -197,9 +196,19 @@ kubectl get certificate wildcard-certificate -n redis-standalone -o jsonpath='{.
 ```
 
 ## 6. Настройка TLSRoute и Gateway
+
+**Важно:** Перед созданием Gateway убедитесь, что сертификат готов и Secret `wildcard-tls-cert` существует. Проверьте статус сертификата:
+
+```bash
+# Ожидаем готовности сертификата (может занять несколько минут)
+kubectl wait --for=condition=Ready certificate/wildcard-certificate -n redis-standalone --timeout=5m
+# Проверяем наличие Secret
+kubectl get secret wildcard-tls-cert -n redis-standalone
+```
+
 ### ReferenceGrant
 
-**Важно:** Gateway API требует создания ReferenceGrant для кросс‑неймспейсных ссылок на ресурсы. Поскольку Gateway в пространстве имён `envoy-gateway` ссылается на Secret `wildcard-tls-cert` в пространстве имён `redis-standalone`, необходимо создать ReferenceGrant в пространстве имён `redis-standalone`, который разрешает эту ссылку.
+**Важно:** Gateway API требует создания ReferenceGrant для кросс‑неймспейсных ссылок на ресурсы. Поскольку Gateway в пространстве имён `envoy-gateway` ссылается на Secret `wildcard-tls-cert` в пространстве имён `redis-standalone`, необходимо создать ReferenceGrant в пространстве имён `redis-standalone`, который разрешает эту ссылку. ReferenceGrant **должен быть создан до Gateway**.
 
 ```bash
 cat <<EOF > referencegrant.yaml
@@ -280,8 +289,15 @@ kubectl describe gateway redis-gateway -n envoy-gateway
 kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.addresses[*].value}' && echo
 # Проверяем адрес LoadBalancer
 kubectl get svc -n envoy-gateway | grep envoy
-# Важно: Если Gateway был создан до ReferenceGrant, может потребоваться пересоздать Gateway:
-# kubectl delete -f gateway.yaml && kubectl apply -f gateway.yaml
+```
+
+**Устранение проблем:** Если Gateway показывает ошибку "Certificate ref to secret ... not permitted by any ReferenceGrant" или "No addresses have been assigned", выполните:
+
+```bash
+# Пересоздаём Gateway (если он был создан до ReferenceGrant или сертификата)
+kubectl delete -f gateway.yaml && kubectl apply -f gateway.yaml
+# Проверяем статус после пересоздания
+kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.conditions[*].type}' && echo
 ```
 
 ### TLSRoute
