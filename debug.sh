@@ -160,9 +160,9 @@ echo ""
 echo "Listeners Gateway:"
 kubectl get gateway redis-gateway -n envoy-gateway -o yaml | grep -A 10 "listeners:" || echo "⚠️  Не удалось получить информацию о listeners"
 
-# 12. Проверка подключения
+# 13. Проверка подключения
 echo ""
-echo "12. Проверка подключения и логов"
+echo "13. Проверка подключения и логов"
 echo "----------------------------------------"
 echo "Логи envoy-gateway (последние 50 строк, фильтр по redis):"
 kubectl logs -n envoy-gateway -l app.kubernetes.io/name=envoy-gateway --tail=50 | grep -i redis || echo "⚠️  Логи с упоминанием redis не найдены. Проверьте логи envoy-gateway вручную"
