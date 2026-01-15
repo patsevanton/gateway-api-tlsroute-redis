@@ -1,6 +1,11 @@
 cilium-app.tf-old
+cilium-redis.tf
 .cursorignore
 dns.tf
+envoyproxy.yaml
+envoyproxy.yaml.tpl
+gatewayclass.yaml
+gateway.yaml
 .git
 .gitignore
 key.json
