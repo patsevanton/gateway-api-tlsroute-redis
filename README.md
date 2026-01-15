@@ -286,8 +286,6 @@ kubectl get svc -n envoy-gateway | grep envoy
 kubectl delete -f gateway.yaml && kubectl apply -f gateway.yaml
 # Проверяем статус после пересоздания
 kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.conditions[*].type}' && echo
-# Проверяем наличие Secret в правильном namespace
-kubectl get secret wildcard-tls-cert -n envoy-gateway
 ```
 
 
