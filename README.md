@@ -289,7 +289,7 @@ kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.conditi
 ```
 
 
-## 5. Создание TLS-сертификата для Redis
+## 5. Создание wildcard TLS-сертификата 
 
 **Важно:** Для wildcard-сертификатов (`*.apatsev.org.ru`) используется DNS-01 challenge через Yandex Cloud DNS ACME webhook, который был настроен в разделе 1. Webhook автоматически создаст необходимые TXT-записи в DNS-зоне для прохождения ACME challenge.
 
