@@ -152,17 +152,6 @@ resource "helm_release" "envoy_gateway" {
   namespace        = "envoy-gateway"
   create_namespace = true
   depends_on       = [yandex_kubernetes_node_group.k8s_node_group_cilium_redis]
-
-  set = [
-    {
-      name  = "service.type"
-      value = "LoadBalancer"
-    },
-    {
-      name  = "service.loadBalancerIP"
-      value = yandex_vpc_address.addr.external_ipv4_address[0].address
-    }
-  ]
 }
 
 resource "local_file" "envoyproxy_yaml" {
@@ -175,59 +164,6 @@ resource "local_file" "envoyproxy_yaml" {
 
 **Примечание:** Файл `envoyproxy.yaml` генерируется автоматически через Terraform из шаблона `envoyproxy.yaml.tpl` с использованием функции `templatefile`. IP-адрес LoadBalancer получается из `yandex_vpc_address.addr.external_ipv4_address[0].address` и вставляется в секцию `provider.kubernetes.envoyService.patch.value.spec.loadBalancerIP`.
 
-
-## 5. Создание TLS-сертификата для Redis
-
-**Важно:** Для wildcard-сертификатов (`*.apatsev.org.ru`) используется DNS-01 challenge через Yandex Cloud DNS ACME webhook, который был настроен в разделе 1. Webhook автоматически создаст необходимые TXT-записи в DNS-зоне для прохождения ACME challenge.
-
-Создаём один wildcard-сертификат для всех поддоменов `*.apatsev.org.ru`:
-
-```bash
-cat <<EOF > wildcard-certificate.yaml
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: wildcard-certificate
-  namespace: envoy-gateway
-spec:
-  secretName: wildcard-tls-cert
-  issuerRef:
-    name: yc-clusterissuer
-    kind: ClusterIssuer
-  duration: 720h
-  renewBefore: 360h
-  dnsNames:
-  - "*.apatsev.org.ru"
-EOF
-```
-
-Создаем сертификат
-```bash
-kubectl apply -f wildcard-certificate.yaml
-```
-
-# Debug: проверяем создание сертификата
-```bash
-kubectl get certificate -n envoy-gateway
-kubectl describe certificate wildcard-certificate -n envoy-gateway
-kubectl get certificaterequest -n envoy-gateway
-kubectl get secret wildcard-tls-cert -n envoy-gateway
-# Проверяем статус сертификата (может занять время)
-kubectl get certificate wildcard-certificate -n envoy-gateway -o jsonpath='{.status.conditions[*].type}' && echo
-```
-
-## 6. Настройка TLSRoute и Gateway
-
-**Важно:** Перед созданием Gateway убедитесь, что сертификат готов и Secret `wildcard-tls-cert` существует. Проверьте статус сертификата:
-
-```bash
-# Ожидаем готовности сертификата (может занять несколько минут)
-kubectl wait --for=condition=Ready certificate/wildcard-certificate -n envoy-gateway --timeout=5m
-# Проверяем наличие Secret
-kubectl get secret wildcard-tls-cert -n envoy-gateway
-```
-
-**Примечание:** Secret `wildcard-tls-cert` создаётся в том же namespace `envoy-gateway`, где находится Gateway, поэтому ReferenceGrant не требуется. Gateway API позволяет ссылаться на ресурсы в том же namespace без дополнительных разрешений.
 
 ### EnvoyProxy (Merge Gateways)
 
@@ -265,7 +201,6 @@ spec:
 Создаем EnvoyProxy
 ```bash
 # Файл envoyproxy.yaml генерируется через Terraform
-terraform apply
 kubectl apply -f envoyproxy.yaml
 ```
 
@@ -354,6 +289,60 @@ kubectl get gateway redis-gateway -n envoy-gateway -o jsonpath='{.status.conditi
 # Проверяем наличие Secret в правильном namespace
 kubectl get secret wildcard-tls-cert -n envoy-gateway
 ```
+
+
+## 5. Создание TLS-сертификата для Redis
+
+**Важно:** Для wildcard-сертификатов (`*.apatsev.org.ru`) используется DNS-01 challenge через Yandex Cloud DNS ACME webhook, который был настроен в разделе 1. Webhook автоматически создаст необходимые TXT-записи в DNS-зоне для прохождения ACME challenge.
+
+Создаём один wildcard-сертификат для всех поддоменов `*.apatsev.org.ru`:
+
+```bash
+cat <<EOF > wildcard-certificate.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-certificate
+  namespace: envoy-gateway
+spec:
+  secretName: wildcard-tls-cert
+  issuerRef:
+    name: yc-clusterissuer
+    kind: ClusterIssuer
+  duration: 720h
+  renewBefore: 360h
+  dnsNames:
+  - "*.apatsev.org.ru"
+EOF
+```
+
+Создаем сертификат
+```bash
+kubectl apply -f wildcard-certificate.yaml
+```
+
+# Debug: проверяем создание сертификата
+```bash
+kubectl get certificate -n envoy-gateway
+kubectl describe certificate wildcard-certificate -n envoy-gateway
+kubectl get certificaterequest -n envoy-gateway
+kubectl get secret wildcard-tls-cert -n envoy-gateway
+# Проверяем статус сертификата (может занять время)
+kubectl get certificate wildcard-certificate -n envoy-gateway -o jsonpath='{.status.conditions[*].type}' && echo
+```
+
+## 6. Настройка TLSRoute и Gateway
+
+**Важно:** Перед созданием Gateway убедитесь, что сертификат готов и Secret `wildcard-tls-cert` существует. Проверьте статус сертификата:
+
+```bash
+# Ожидаем готовности сертификата (может занять несколько минут)
+kubectl wait --for=condition=Ready certificate/wildcard-certificate -n envoy-gateway --timeout=5m
+# Проверяем наличие Secret
+kubectl get secret wildcard-tls-cert -n envoy-gateway
+```
+
+**Примечание:** Secret `wildcard-tls-cert` создаётся в том же namespace `envoy-gateway`, где находится Gateway, поэтому ReferenceGrant не требуется. Gateway API позволяет ссылаться на ресурсы в том же namespace без дополнительных разрешений.
 
 ### TLSRoute
 Маршрут должен быть объявлен в том же пространстве имён, где расположены backend-сервисы (`redis-standalone`) и сертификаты. `sectionName` `parentRef` должен совпадать с именем listener'а в Gateway, а `backendRefs` — ссылаться на сервис, который expose'ит порт 6379 для Redis.
