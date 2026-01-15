@@ -14,4 +14,4 @@ spec:
           value:
             spec:
               type: LoadBalancer
-              loadBalancerIP: <IP_будет_подставлен_через_terraform>
+              loadBalancerIP: 158.160.82.122

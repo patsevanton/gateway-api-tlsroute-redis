@@ -83,17 +83,6 @@ resource "helm_release" "envoy_gateway" {
   namespace        = "envoy-gateway"
   create_namespace = true
   depends_on       = [yandex_kubernetes_node_group.k8s_node_group_cilium_redis]
-
-  set = [
-    {
-      name  = "service.type"
-      value = "LoadBalancer"
-    },
-    {
-      name  = "service.loadBalancerIP"
-      value = yandex_vpc_address.addr.external_ipv4_address[0].address
-    }
-  ]
 }
 
 resource "local_file" "envoyproxy_yaml" {
